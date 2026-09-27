@@ -62,7 +62,7 @@ function Login({ onLogin }) {
 
     const { data, error: authError } = await signIn(email.trim(), password);
     if (authError) {
-      setError('E-mail ou senha inválidos.');
+      setError('Usuário ou senha inválidos.');
       setLoading(false);
       return;
     }
