@@ -478,6 +478,37 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
     onBack();
   }
 
+  function openWhatsAppMessage(occurrence) {
+    const categoryName = categories.find((category) => String(category.id) === String(occurrence.categoria_id))?.nome || 'Sem categoria';
+    const occurredDate = occurrence.ocorrido_at
+      ? new Date(occurrence.ocorrido_at).toLocaleString('pt-BR')
+      : occurredAt
+        ? new Date(occurredAt).toLocaleString('pt-BR')
+        : 'Não informado';
+    const userName = session.user.user_metadata?.username || session.user.email || 'Usuário';
+    const mediaCount = newFiles.length;
+
+    const message = [
+      '🚨 *NOVA OCORRÊNCIA QRU*',
+      '',
+      `📋 *Ocorrência:* #${occurrence.numero}`,
+      `🏷️ *Categoria:* ${categoryName}`,
+      `🕒 *Data/hora do ocorrido:* ${occurredDate}`,
+      `👤 *Registrado por:* ${userName}`,
+      description.trim() ? `📝 *Descrição:* ${description.trim()}` : '📝 *Descrição:* Não informada',
+      `📎 *Mídias anexadas:* ${mediaCount}`,
+      '',
+      'Registro salvo no sistema Ocorrência QRU.'
+    ].join('\\n');
+
+    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    const whatsappWindow = window.open(url, '_blank', 'noopener,noreferrer');
+
+    if (!whatsappWindow) {
+      setError('O navegador bloqueou a abertura do WhatsApp. Permita pop-ups para este site e tente novamente.');
+    }
+  }
+
   async function handleSave(event) {
     event.preventDefault();
     setError('');
@@ -518,6 +549,10 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
         setSaving(false);
         return;
       }
+    }
+
+    if (!editing) {
+      openWhatsAppMessage(result.data);
     }
 
     setSaving(false);
