@@ -17,7 +17,7 @@ import {
 } from './lib/occurrences';
 import { compressMedia, formatFileSize } from './lib/mediaCompression';
 
-function buildWhatsAppMessage({ occurrence, categoryName, occurredAt, userName, description, mediaCount }) {
+function buildWhatsAppMessage({ occurrence, categoryName, occurredAt, userName, description, mediaCount, siteUrl }) {
   const occurredDate = occurrence.ocorrido_at
     ? new Date(occurrence.ocorrido_at).toLocaleString('pt-BR')
     : occurredAt
@@ -34,8 +34,10 @@ function buildWhatsAppMessage({ occurrence, categoryName, occurredAt, userName, 
     description.trim() ? `📝 *Descrição:* ${description.trim()}` : '📝 *Descrição:* Não informada',
     `📎 *Mídias anexadas:* ${mediaCount}`,
     '',
+    `🔗 *Ver no sistema:* ${siteUrl}`,
+    '',
     'Registro salvo no sistema Ocorrência QRU.'
-  ].join('\n');
+  ].join('\\n');
 }
 
 function Login({ onLogin }) {
@@ -500,7 +502,9 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
     onBack();
   }
 
-  function prepareWhatsAppMessage(occurrence) {
+  const siteUrl = window.location.origin + '/ocorrencia-qru/';
+
+  function prepareWhatsAppMessage(occurrence, mediaCount = newFiles.length) {
     const categoryName = categories.find((category) => String(category.id) === String(occurrence.categoria_id))?.nome || 'Sem categoria';
     const userName = session.user.user_metadata?.username || session.user.email || 'Usuário';
 
@@ -510,12 +514,13 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
       occurredAt,
       userName,
       description,
-      mediaCount: newFiles.length,
+      mediaCount,
+      siteUrl,
     });
   }
 
-  function openWhatsAppText(occurrence) {
-    const message = prepareWhatsAppMessage(occurrence);
+  function openWhatsAppText(occurrence, mediaCount = newFiles.length) {
+    const message = prepareWhatsAppMessage(occurrence, mediaCount);
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     const whatsappWindow = window.open(url, '_blank', 'noopener,noreferrer');
 
@@ -524,53 +529,41 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
     }
   }
 
-  async function shareOccurrenceWithMedia() {
-    setError('');
+  async function shareFirstMedia(occurrence, mediaList = existingMedia) {
+    const message = prepareWhatsAppMessage(occurrence, mediaList.length);
 
-    const message = prepareWhatsAppMessage({
-      numero: occurrenceNumber,
-      categoria_id: categoryId || null,
-      ocorrido_at: occurredAt,
-    });
-
-    if (!existingMedia.length) {
-      openWhatsAppText({
-        numero: occurrenceNumber,
-        categoria_id: categoryId || null,
-        ocorrido_at: occurredAt,
-      });
+    if (!mediaList.length) {
+      openWhatsAppText(occurrence, 0);
       return;
     }
 
     if (!navigator.share || !navigator.canShare) {
-      setError('Seu navegador não suporta compartilhamento de arquivos. Abra o WhatsApp pelo botão de texto e anexe as mídias manualmente.');
+      openWhatsAppText(occurrence, mediaList.length);
       return;
     }
 
     try {
-      const files = [];
+      const media = mediaList[0];
+      const response = await fetch(media.url);
+      if (!response.ok) throw new Error(`Não foi possível preparar "${media.nome_arquivo}".`);
+      const blob = await response.blob();
+      const file = new File([blob], media.nome_arquivo, {
+        type: blob.type || (media.tipo === 'video' ? 'video/mp4' : 'image/jpeg'),
+      });
 
-      for (const media of existingMedia) {
-        const response = await fetch(media.url);
-        if (!response.ok) throw new Error(`Não foi possível preparar "${media.nome_arquivo}".`);
-        const blob = await response.blob();
-        files.push(new File([blob], media.nome_arquivo, {
-          type: blob.type || (media.tipo === 'video' ? 'video/mp4' : 'image/jpeg'),
-        }));
-      }
-
-      if (!navigator.canShare({ files })) {
-        throw new Error('Este dispositivo não permite compartilhar essas mídias pelo navegador.');
+      if (!navigator.canShare({ files: [file] })) {
+        openWhatsAppText(occurrence, mediaList.length);
+        return;
       }
 
       await navigator.share({
-        title: `Ocorrência #${occurrenceNumber}`,
+        title: `Ocorrência #${occurrence.numero}`,
         text: message,
-        files,
+        files: [file],
       });
     } catch (shareError) {
       if (shareError?.name === 'AbortError') return;
-      setError(shareError.message || 'Não foi possível compartilhar as mídias.');
+      setError(shareError.message || 'Não foi possível compartilhar a mídia.');
     }
   }
 
@@ -617,7 +610,13 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
     }
 
     if (!editing) {
-      openWhatsAppText(result.data);
+      const { data: savedOccurrence, error: savedOccurrenceError } = await getOccurrence(id, session.user.id);
+      if (savedOccurrenceError) {
+        openWhatsAppText(result.data, newFiles.length);
+      } else {
+        const media = await createMediaUrls(savedOccurrence.ocorrencia_midias || []);
+        await shareFirstMedia(savedOccurrence, media);
+      }
     }
 
     setSaving(false);
@@ -635,7 +634,11 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
           <p>{editing ? 'Altere a descrição ou acrescente novas mídias.' : 'Preencha os dados e registre fotos ou vídeos.'}</p>
         </div>
         {editing && (
-          <button type="button" className="secondary" onClick={shareOccurrenceWithMedia}>
+          <button type="button" className="secondary" onClick={() => shareFirstMedia({
+            numero: occurrenceNumber,
+            categoria_id: categoryId || null,
+            ocorrido_at: occurredAt,
+          })}>
             📲 Compartilhar no WhatsApp
           </button>
         )}
