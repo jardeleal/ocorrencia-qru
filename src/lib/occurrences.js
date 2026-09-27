@@ -64,7 +64,7 @@ export async function listOccurrences(userId) {
     .from('ocorrencias')
     .select('id,numero,usuario_id,categoria_id,descricao,ocorrido_at,created_at,updated_at,categorias(nome),profiles(username,nome,email)')
     .eq('usuario_id', userId)
-    .order('created_at', { ascending: false });
+    .order('ocorrido_at', { ascending: false, nullsFirst: false });
   return { data: data ?? [], error };
 }
 
@@ -100,7 +100,7 @@ export async function updateOccurrence(id, userId, { categoriaId, occurredAt, de
       ocorrido_at: occurredAt ? new Date(occurredAt).toISOString() : null,
       descricao: descricao?.trim() || null,
     })
-    .eq('id', id
+    .eq('id', id)
     .eq('usuario_id', userId)
     .select('id,numero,usuario_id,categoria_id,descricao,ocorrido_at,created_at,updated_at')
     .single();
