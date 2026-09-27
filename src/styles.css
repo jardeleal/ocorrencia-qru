@@ -265,3 +265,26 @@ input:focus,textarea:focus,select:focus {
 .share-file-summary span { color:#B7C7D9; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .share-actions { display:flex; gap:10px; flex-wrap:wrap; }
 .share-actions button { flex:1 1 220px; }
+
+
+.admin-user-edit {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #29415F;
+  border-radius: 10px;
+  background: #0F1A2B;
+}
+.admin-user-edit .form-actions-inline {
+  margin: 0;
+}
+.category-row:has(.admin-user-edit) {
+  grid-template-columns: 1fr auto;
+}
+@media (max-width: 700px) {
+  .category-row:has(.admin-user-edit) {
+    grid-template-columns: 1fr;
+  }
+}
