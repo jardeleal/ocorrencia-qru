@@ -15,6 +15,27 @@ export async function listCategories() {
   return { data: data ?? [], error };
 }
 
+export async function createCategory({ nome, descricao }) {
+  const cleanName = nome?.trim();
+  const cleanDescription = descricao?.trim() || null;
+
+  if (!cleanName) {
+    return { data: null, error: new Error('Informe o nome da categoria.') };
+  }
+
+  const { data, error } = await supabase
+    .from('categorias')
+    .insert({
+      nome: cleanName,
+      descricao: cleanDescription,
+      ativo: true,
+    })
+    .select('id,nome,descricao,ativo')
+    .single();
+
+  return { data, error };
+}
+
 export async function listOccurrences(userId) {
   const { data, error } = await supabase
     .from('ocorrencias')
@@ -62,11 +83,15 @@ export async function updateOccurrence(id, userId, { categoriaId, descricao }) {
 }
 
 export async function uploadMedia({ userId, occurrenceId, file }) {
-  const extension = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : 'bin';
   const path = `${userId}/${occurrenceId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || undefined });
+    .upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || undefined,
+    });
 
   if (uploadError) return { error: uploadError };
 
@@ -99,15 +124,57 @@ export async function createMediaUrls(media) {
 }
 
 export async function deleteMedia(item, userId) {
+  const { data: occurrence } = await supabase
+    .from('ocorrencias')
+    .select('id')
+    .eq('id', item.ocorrencia_id)
+    .eq('usuario_id', userId)
+    .single();
+
+  if (!occurrence) return { error: new Error('Mídia não encontrada ou sem permissão.') };
+
+  const { error: storageError } = await supabase.storage
+    .from(BUCKET)
+    .remove([item.arquivo_path]);
+
+  if (storageError) return { error: storageError };
+
   const { error: dbError } = await supabase
     .from('ocorrencia_midias')
     .delete()
     .eq('id', item.id)
-    .in('ocorrencia_id',
-      (await supabase.from('ocorrencias').select('id').eq('usuario_id', userId)).data?.map((row) => row.id) ?? []
-    );
+    .eq('ocorrencia_id', item.ocorrencia_id);
 
-  if (dbError) return { error: dbError };
-  const { error: storageError } = await supabase.storage.from(BUCKET).remove([item.arquivo_path]);
-  return { error: storageError };
+  return { error: dbError };
+}
+
+export async function deleteOccurrence(id, userId) {
+  const { data: occurrence, error: occurrenceError } = await supabase
+    .from('ocorrencias')
+    .select('id,ocorrencia_midias(arquivo_path)')
+    .eq('id', id)
+    .eq('usuario_id', userId)
+    .single();
+
+  if (occurrenceError) return { error: occurrenceError };
+
+  const paths = (occurrence.ocorrencia_midias || [])
+    .map((item) => item.arquivo_path)
+    .filter(Boolean);
+
+  if (paths.length) {
+    const { error: storageError } = await supabase.storage
+      .from(BUCKET)
+      .remove(paths);
+
+    if (storageError) return { error: storageError };
+  }
+
+  const { error } = await supabase
+    .from('ocorrencias')
+    .delete()
+    .eq('id', id)
+    .eq('usuario_id', userId);
+
+  return { error };
 }
