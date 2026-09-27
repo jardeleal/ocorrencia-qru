@@ -62,7 +62,7 @@ export async function createCategory({ nome, descricao }) {
 export async function listOccurrences(userId) {
   const { data, error } = await supabase
     .from('ocorrencias')
-    .select('id,numero,categoria_id,descricao,created_at,updated_at,categorias(nome)')
+    .select('id,numero,usuario_id,categoria_id,descricao,ocorrido_at,created_at,updated_at,categorias(nome),profiles(username,nome,email)')
     .eq('usuario_id', userId)
     .order('created_at', { ascending: false });
   return { data: data ?? [], error };
@@ -71,36 +71,38 @@ export async function listOccurrences(userId) {
 export async function getOccurrence(id, userId) {
   const { data, error } = await supabase
     .from('ocorrencias')
-    .select('id,numero,categoria_id,descricao,created_at,updated_at,categorias(nome),ocorrencia_midias(id,tipo,arquivo_path,nome_arquivo,created_at)')
+    .select('id,numero,usuario_id,categoria_id,descricao,ocorrido_at,created_at,updated_at,categorias(nome),profiles(username,nome,email),ocorrencia_midias(id,ocorrencia_id,tipo,arquivo_path,nome_arquivo,created_at)')
     .eq('id', id)
     .eq('usuario_id', userId)
     .single();
   return { data, error };
 }
 
-export async function createOccurrence({ userId, categoriaId, descricao }) {
+export async function createOccurrence({ userId, categoriaId, occurredAt, descricao }) {
   const { data, error } = await supabase
     .from('ocorrencias')
     .insert({
       usuario_id: userId,
       categoria_id: categoriaId || null,
+      ocorrido_at: occurredAt ? new Date(occurredAt).toISOString() : null,
       descricao: descricao?.trim() || null,
     })
-    .select('id,numero,categoria_id,descricao,created_at,updated_at')
+    .select('id,numero,usuario_id,categoria_id,descricao,ocorrido_at,created_at,updated_at')
     .single();
   return { data, error };
 }
 
-export async function updateOccurrence(id, userId, { categoriaId, descricao }) {
+export async function updateOccurrence(id, userId, { categoriaId, occurredAt, descricao }) {
   const { data, error } = await supabase
     .from('ocorrencias')
     .update({
       categoria_id: categoriaId || null,
+      ocorrido_at: occurredAt ? new Date(occurredAt).toISOString() : null,
       descricao: descricao?.trim() || null,
     })
-    .eq('id', id)
+    .eq('id', id
     .eq('usuario_id', userId)
-    .select('id,numero,categoria_id,descricao,created_at,updated_at')
+    .select('id,numero,usuario_id,categoria_id,descricao,ocorrido_at,created_at,updated_at')
     .single();
   return { data, error };
 }
@@ -147,26 +149,34 @@ export async function createMediaUrls(media) {
 }
 
 export async function deleteMedia(item, userId) {
-  const { data: occurrence } = await supabase
+  const { data: media, error: mediaError } = await supabase
+    .from('ocorrencia_midias')
+    .select('id,ocorrencia_id,arquivo_path')
+    .eq('id', item.id)
+    .single();
+
+  if (mediaError || !media) return { error: mediaError || new Error('Mídia não encontrada.') };
+
+  const { data: occurrence, error: occurrenceError } = await supabase
     .from('ocorrencias')
     .select('id')
-    .eq('id', item.ocorrencia_id)
+    .eq('id', media.ocorrencia_id)
     .eq('usuario_id', userId)
     .single();
 
-  if (!occurrence) return { error: new Error('Mídia não encontrada ou sem permissão.') };
+  if (occurrenceError || !occurrence) return { error: occurrenceError || new Error('Mídia não encontrada ou sem permissão.') };
 
   const { error: storageError } = await supabase.storage
     .from(BUCKET)
-    .remove([item.arquivo_path]);
+    .remove([media.arquivo_path]);
 
   if (storageError) return { error: storageError };
 
   const { error: dbError } = await supabase
     .from('ocorrencia_midias')
     .delete()
-    .eq('id', item.id)
-    .eq('ocorrencia_id', item.ocorrencia_id);
+    .eq('id', media.id)
+    .eq('ocorrencia_id', media.ocorrencia_id);
 
   return { error: dbError };
 }
