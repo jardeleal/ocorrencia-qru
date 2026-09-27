@@ -63,7 +63,6 @@ export async function listOccurrences(userId) {
   const { data, error } = await supabase
     .from('ocorrencias')
     .select('id,numero,usuario_id,categoria_id,descricao,ocorrido_at,created_at,updated_at,categorias(nome),profiles(username,nome,email)')
-    .eq('usuario_id', userId)
     .order('ocorrido_at', { ascending: false, nullsFirst: false });
   return { data: data ?? [], error };
 }
@@ -73,7 +72,6 @@ export async function getOccurrence(id, userId) {
     .from('ocorrencias')
     .select('id,numero,usuario_id,categoria_id,descricao,ocorrido_at,created_at,updated_at,categorias(nome),profiles(username,nome,email),ocorrencia_midias(id,ocorrencia_id,tipo,arquivo_path,nome_arquivo,created_at)')
     .eq('id', id)
-    .eq('usuario_id', userId)
     .single();
   return { data, error };
 }
