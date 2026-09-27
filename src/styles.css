@@ -237,3 +237,21 @@ input:focus,textarea:focus,select:focus {
 @media (max-width:700px) {
   .topbar { background:#0F1A2B; }
 }
+
+
+.occurrence-panel-header { align-items:center; }
+.occurrence-tools { display:flex; align-items:center; gap:10px; }
+.search-box { display:flex; align-items:center; gap:8px; width:min(360px,45vw); padding:0 12px; border:1px solid #29415F; border-radius:10px; background:#17263D; }
+.search-box input { border:0; padding:10px 0; background:transparent; box-shadow:none !important; }
+.search-box input:focus { border:0; }
+.refresh-button { width:42px; height:42px; padding:0; font-size:23px; line-height:1; }
+.occurrence-info-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.registration-info { display:grid; align-content:center; gap:4px; padding:13px 14px; border:1px solid #29415F; border-radius:10px; background:#0F1A2B; }
+.registration-info span,.registration-info small { color:#8EA2BD; font-size:13px; }
+.registration-info strong { color:#EAF2FF; }
+@media (max-width:700px) {
+  .occurrence-panel-header { align-items:stretch; flex-direction:column; }
+  .occurrence-tools { width:100%; }
+  .search-box { width:100%; }
+  .occurrence-info-grid { grid-template-columns:1fr; }
+}
