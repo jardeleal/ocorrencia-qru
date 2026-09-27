@@ -13,7 +13,7 @@ import {
 
 function Login({ onLogin }) {
   const [mode, setMode] = useState('login');
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [signupCode, setSignupCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,16 +30,22 @@ function Login({ onLogin }) {
     event.preventDefault();
     setError('');
     setMessage('');
+    const cleanUsername = username.trim().toLowerCase();
+
+    if (!/^[a-zA-Z0-9._-]{3,30}$/.test(cleanUsername)) {
+      setError('Use um usuário de 3 a 30 caracteres: letras, números, ponto, hífen ou _.');
+      return;
+    }
+
+    if (mode === 'signup' && signupCode.trim() !== SIGNUP_CODE) {
+      setError('Código de cadastro inválido.');
+      return;
+    }
+
     setLoading(true);
 
     if (mode === 'signup') {
-      if (signupCode.trim() !== SIGNUP_CODE) {
-        setError('Código de cadastro inválido.');
-        setLoading(false);
-        return;
-      }
-
-      const { data, error: signupError } = await signUp(email.trim(), password);
+      const { data, error: signupError } = await signUp(cleanUsername, password);
       if (signupError) {
         setError(signupError.message || 'Não foi possível criar a conta.');
         setLoading(false);
@@ -50,17 +56,16 @@ function Login({ onLogin }) {
         await createProfile(data.user);
         onLogin(data.session);
       } else {
-        setMessage('Conta criada! Verifique seu e-mail para confirmar o cadastro e depois entre no sistema.');
+        setMessage('Conta criada! Agora entre usando seu usuário e senha.');
         setMode('login');
         setPassword('');
         setSignupCode('');
       }
-
       setLoading(false);
       return;
     }
 
-    const { data, error: authError } = await signIn(email.trim(), password);
+    const { data, error: authError } = await signIn(cleanUsername, password);
     if (authError) {
       setError('Usuário ou senha inválidos.');
       setLoading(false);
@@ -85,8 +90,8 @@ function Login({ onLogin }) {
         </div>
 
         <form onSubmit={handleSubmit} className="form">
-          <label>Usuário (e-mail)
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" autoComplete="email" required />
+          <label>Usuário
+            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="ex.: jardel.dias" autoComplete="username" maxLength="30" required />
           </label>
 
           <label>Senha
@@ -116,7 +121,6 @@ function Login({ onLogin }) {
     </main>
   );
 }
-
 function Dashboard({ session }) {
   const [screen, setScreen] = useState('home');
   const [categories, setCategories] = useState([]);
