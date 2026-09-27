@@ -151,6 +151,23 @@ function Login({ onLogin }) {
   );
 }
 
+async function adminRequest(session, action, payload = {}) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token || session.access_token;
+  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL || 'https://pdnbawzegvxoartmkmkj.supabase.co'}/functions/v1/admin-users`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Não foi possível concluir a operação.');
+  return data;
+}
+
 function Dashboard({ session }) {
   const [screen, setScreen] = useState('home');
   const [categories, setCategories] = useState([]);
@@ -217,6 +234,9 @@ function Dashboard({ session }) {
         <div><strong>Ocorrência QRU</strong><span>Registro e acompanhamento</span></div>
         <nav className="topbar-actions">
           <button className="secondary small" onClick={() => setScreen('categories')}>Categorias</button>
+          {session.user.app_metadata?.is_admin === true && (
+            <button className="secondary small" onClick={() => setScreen('users')}>Usuários</button>
+          )}
           <button className="secondary small" onClick={handleLogout}>Sair</button>
         </nav>
       </header>
@@ -271,6 +291,10 @@ function Dashboard({ session }) {
           </>
         )}
 
+        {screen === 'users' && session.user.app_metadata?.is_admin === true && (
+          <AdminUserManager session={session} onBack={() => setScreen('home')} />
+        )}
+
         {screen === 'categories' && (
           <CategoryManager
             categories={categories}
@@ -291,6 +315,173 @@ function Dashboard({ session }) {
       </section>
 
     </main>
+  );
+}
+
+function AdminUserManager({ session, onBack }) {
+  const [users, setUsers] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  async function loadUsers() {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await adminRequest(session, 'list');
+      setUsers(data.users || []);
+    } catch (loadError) {
+      setError(loadError.message || 'Não foi possível carregar os usuários.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadUsers(); }, []);
+
+  function startEdit(user) {
+    setEditingId(user.id);
+    setName(user.nome || '');
+    setPassword('');
+    setMessage('');
+    setError('');
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setName('');
+    setPassword('');
+  }
+
+  async function saveName(user) {
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      await adminRequest(session, 'update', { userId: user.id, nome: name, ativo: user.ativo });
+      setMessage('Nome atualizado com sucesso.');
+      cancelEdit();
+      await loadUsers();
+    } catch (saveError) {
+      setError(saveError.message || 'Não foi possível atualizar o usuário.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleUser(user) {
+    if (user.id === session.user.id) {
+      setError('O administrador atual não pode ser desativado por esta tela.');
+      return;
+    }
+    const action = user.ativo ? 'desativar' : 'ativar';
+    if (!window.confirm(`Deseja ${action} o usuário "${user.username}"?`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      await adminRequest(session, 'update', { userId: user.id, nome: user.nome || '', ativo: !user.ativo });
+      setMessage(`Usuário ${user.ativo ? 'desativado' : 'ativado'} com sucesso.`);
+      await loadUsers();
+    } catch (toggleError) {
+      setError(toggleError.message || 'Não foi possível alterar o usuário.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetPassword(user) {
+    if (password.length < 6) {
+      setError('Digite uma nova senha com pelo menos 6 caracteres.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      await adminRequest(session, 'reset_password', { userId: user.id, password });
+      setMessage(`Senha de "${user.username}" redefinida com sucesso.`);
+      setPassword('');
+    } catch (resetError) {
+      setError(resetError.message || 'Não foi possível redefinir a senha.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeUser(user) {
+    if (user.id === session.user.id) {
+      setError('O administrador atual não pode remover a própria conta.');
+      return;
+    }
+    if (!window.confirm(`Remover definitivamente o usuário "${user.username}"? Se ele possuir ocorrências, será necessário desativá-lo para preservar o histórico.`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      await adminRequest(session, 'delete', { userId: user.id });
+      setMessage('Usuário removido.');
+      await loadUsers();
+    } catch (removeError) {
+      setError(removeError.message || 'Não foi possível remover o usuário.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel category-panel">
+      <div className="page-heading compact">
+        <div>
+          <button type="button" className="link-button" onClick={onBack}>← Voltar</button>
+          <h1>Gerenciar usuários</h1>
+          <p>Edite nomes, redefina senhas, ative ou desative usuários.</p>
+        </div>
+      </div>
+
+      {error && <div className="error">{error}</div>}
+      {message && <div className="success">{message}</div>}
+
+      {loading ? <p className="muted">Carregando usuários...</p> : (
+        <div className="category-list">
+          {users.map((user) => (
+            <div className="category-row" key={user.id}>
+              <div>
+                <strong>{user.username || 'Sem usuário'}</strong>
+                <small>{user.nome || 'Nome não informado'} · {user.ativo ? 'Ativo' : 'Desativado'}</small>
+              </div>
+              <div className="category-row-actions">
+                <button type="button" className="link-button small-link" onClick={() => startEdit(user)}>Editar</button>
+                <button type="button" className="link-button small-link" onClick={() => toggleUser(user)} disabled={saving || user.id === session.user.id}>
+                  {user.ativo ? 'Desativar' : 'Ativar'}
+                </button>
+                <button type="button" className="danger-link" onClick={() => removeUser(user)} disabled={saving || user.id === session.user.id}>Remover</button>
+              </div>
+
+              {editingId === user.id && (
+                <div className="admin-user-edit">
+                  <label>Nome
+                    <input value={name} onChange={(e) => setName(e.target.value)} maxLength="120" placeholder="Nome do usuário" />
+                  </label>
+                  <div className="form-actions-inline">
+                    <button type="button" onClick={() => saveName(user)} disabled={saving}>{saving ? 'Salvando...' : 'Salvar nome'}</button>
+                    <button type="button" className="secondary" onClick={cancelEdit} disabled={saving}>Cancelar</button>
+                  </div>
+                  <label>Nova senha
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength="6" placeholder="Mínimo de 6 caracteres" />
+                  </label>
+                  <button type="button" className="secondary" onClick={() => resetPassword(user)} disabled={saving || password.length < 6}>
+                    Redefinir senha
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -785,8 +976,12 @@ function App() {
 
   useEffect(() => {
     let active = true;
-    getSession().then((currentSession) => {
-      if (active) { setSession(currentSession); setChecking(false); }
+    supabase.auth.refreshSession().then(({ data }) => {
+      if (active) { setSession(data.session); setChecking(false); }
+    }).catch(() => {
+      getSession().then((currentSession) => {
+        if (active) { setSession(currentSession); setChecking(false); }
+      });
     });
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
     return () => { active = false; data.subscription.unsubscribe(); };
