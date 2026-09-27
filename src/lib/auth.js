@@ -1,19 +1,32 @@
 import { supabase } from './supabase';
 
 export const SIGNUP_CODE = 'monitor@07';
+const AUTH_DOMAIN = 'ocorrencia-qru.local';
 
-export async function signIn(email, password) {
-  if (!supabase) throw new Error('Supabase não configurado.');
-  return supabase.auth.signInWithPassword({ email, password });
+export function normalizeUsername(username) {
+  return username.trim().toLowerCase();
 }
 
-export async function signUp(email, password) {
+export function usernameToEmail(username) {
+  return normalizeUsername(username) + '@' + AUTH_DOMAIN;
+}
+
+export async function signIn(username, password) {
   if (!supabase) throw new Error('Supabase não configurado.');
+  return supabase.auth.signInWithPassword({
+    email: usernameToEmail(username),
+    password,
+  });
+}
+
+export async function signUp(username, password) {
+  if (!supabase) throw new Error('Supabase não configurado.');
+  const normalizedUsername = normalizeUsername(username);
   return supabase.auth.signUp({
-    email,
+    email: usernameToEmail(normalizedUsername),
     password,
     options: {
-      emailRedirectTo: window.location.origin + window.location.pathname,
+      data: { username: normalizedUsername },
     },
   });
 }
@@ -34,6 +47,7 @@ export async function createProfile(user) {
   return supabase.from('profiles').upsert({
     id: user.id,
     email: user.email ?? null,
+    username: user.user_metadata?.username ?? null,
     nome: user.user_metadata?.nome ?? user.user_metadata?.name ?? null,
   });
 }
