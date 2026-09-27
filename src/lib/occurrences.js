@@ -15,6 +15,29 @@ export async function listCategories() {
   return { data: data ?? [], error };
 }
 
+export async function updateCategory(id, { nome, descricao }) {
+  const cleanName = nome?.trim();
+  const cleanDescription = descricao?.trim() || null;
+  if (!cleanName) return { data: null, error: new Error('Informe o nome da categoria.') };
+
+  const { data, error } = await supabase
+    .from('categorias')
+    .update({ nome: cleanName, descricao: cleanDescription })
+    .eq('id', id)
+    .select('id,nome,descricao,ativo')
+    .single();
+
+  return { data, error };
+}
+
+export async function deleteCategory(id) {
+  const { error } = await supabase
+    .from('categorias')
+    .delete()
+    .eq('id', id);
+  return { error };
+}
+
 export async function createCategory({ nome, descricao }) {
   const cleanName = nome?.trim();
   const cleanDescription = descricao?.trim() || null;
