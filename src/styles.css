@@ -119,3 +119,9 @@ input:focus,textarea:focus,select:focus { border-color:#111827; box-shadow:0 0 0
   .media-modal { padding:8px; }
   .media-modal-card { max-height:calc(100vh - 16px); }
 }
+
+.form-actions-inline { display:flex; gap:8px; flex-wrap:wrap; }
+.category-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.category-row-actions { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.category-field { display:grid; gap:8px; }
+.category-add-button { justify-self:start; }
