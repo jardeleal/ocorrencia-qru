@@ -255,3 +255,13 @@ input:focus,textarea:focus,select:focus {
   .search-box { width:100%; }
   .occurrence-info-grid { grid-template-columns:1fr; }
 }
+
+.share-content { padding:24px; text-align:center; }
+.share-icon { font-size:42px; margin-bottom:8px; }
+.share-content h3 { margin:0 0 8px; color:#EAF2FF; }
+.share-content p { margin:0 auto 18px; max-width:560px; color:#9DB0C9; line-height:1.5; }
+.share-file-summary { display:grid; gap:7px; max-height:180px; overflow:auto; padding:12px; border:1px solid #29415F; border-radius:10px; background:#0F1A2B; text-align:left; }
+.share-file-summary strong { color:#EAF2FF; }
+.share-file-summary span { color:#B7C7D9; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.share-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.share-actions button { flex:1 1 220px; }
