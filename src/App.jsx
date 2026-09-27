@@ -1,15 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createProfile, getSession, signIn, signOut, signUp, SIGNUP_CODE } from './lib/auth';
 import { supabase } from './lib/supabase';
 import {
+  createCategory,
   createMediaUrls,
   createOccurrence,
+  deleteMedia,
+  deleteOccurrence,
   getOccurrence,
   listCategories,
   listOccurrences,
   updateOccurrence,
   uploadMedia,
 } from './lib/occurrences';
+import { compressMedia, formatFileSize } from './lib/mediaCompression';
 
 function Login({ onLogin }) {
   const [mode, setMode] = useState('login');
@@ -121,6 +125,7 @@ function Login({ onLogin }) {
     </main>
   );
 }
+
 function Dashboard({ session }) {
   const [screen, setScreen] = useState('home');
   const [categories, setCategories] = useState([]);
@@ -145,6 +150,12 @@ function Dashboard({ session }) {
     setLoading(false);
   }
 
+  async function loadCategories() {
+    const { data, error } = await listCategories();
+    if (!error) setCategories(data);
+    return { data, error };
+  }
+
   useEffect(() => { loadData(); }, []);
 
   async function handleLogout() {
@@ -166,7 +177,10 @@ function Dashboard({ session }) {
     <main className="dashboard">
       <header className="topbar">
         <div><strong>Ocorrência QRU</strong><span>Registro e acompanhamento</span></div>
-        <button className="secondary small" onClick={handleLogout}>Sair</button>
+        <nav className="topbar-actions">
+          <button className="secondary small" onClick={() => setScreen('categories')}>Categorias</button>
+          <button className="secondary small" onClick={handleLogout}>Sair</button>
+        </nav>
       </header>
 
       <section className="dashboard-content dashboard-inner">
@@ -175,7 +189,7 @@ function Dashboard({ session }) {
             <div className="page-heading">
               <div>
                 <h1>Painel de ocorrências</h1>
-                <p>Usuário: <strong>{session.user.email}</strong></p>
+                <p>Usuário: <strong>{session.user.user_metadata?.username || session.user.email}</strong></p>
               </div>
               <button onClick={openNew}>+ Nova ocorrência</button>
             </div>
@@ -209,6 +223,14 @@ function Dashboard({ session }) {
           </>
         )}
 
+        {screen === 'categories' && (
+          <CategoryManager
+            categories={categories}
+            onBack={() => setScreen('home')}
+            onCreated={async () => { await loadCategories(); }}
+          />
+        )}
+
         {screen === 'form' && (
           <OccurrenceForm
             session={session}
@@ -222,6 +244,78 @@ function Dashboard({ session }) {
   );
 }
 
+function CategoryManager({ categories, onBack, onCreated }) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage('');
+    setError('');
+
+    const { error: createError } = await createCategory({ nome: name, descricao: description });
+    if (createError) {
+      if (createError.code === '23505') {
+        setError('Essa categoria já existe.');
+      } else {
+        setError(createError.message || 'Não foi possível criar a categoria.');
+      }
+      setSaving(false);
+      return;
+    }
+
+    setName('');
+    setDescription('');
+    setMessage('Categoria criada com sucesso.');
+    await onCreated();
+    setSaving(false);
+  }
+
+  return (
+    <section className="panel category-panel">
+      <div className="page-heading compact">
+        <div>
+          <button type="button" className="link-button" onClick={onBack}>← Voltar</button>
+          <h1>Categorias</h1>
+          <p>Cadastre e consulte as categorias usadas nas ocorrências.</p>
+        </div>
+      </div>
+
+      <div className="category-layout">
+        <form className="category-create" onSubmit={handleCreate}>
+          <h2>Nova categoria</h2>
+          <label>Nome
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength="60" placeholder="Ex.: Produto vencido" required />
+          </label>
+          <label>Descrição (opcional)
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows="3" maxLength="200" placeholder="Explique quando essa categoria deve ser usada." />
+          </label>
+          {error && <div className="error">{error}</div>}
+          {message && <div className="success">{message}</div>}
+          <button type="submit" disabled={saving}>{saving ? 'Salvando...' : '+ Adicionar categoria'}</button>
+        </form>
+
+        <div>
+          <h2 className="category-list-title">Categorias cadastradas ({categories.length})</h2>
+          <div className="category-list">
+            {categories.length === 0 ? (
+              <div className="empty"><strong>Nenhuma categoria cadastrada.</strong></div>
+            ) : categories.map((category) => (
+              <div className="category-row" key={category.id}>
+                <div><strong>{category.nome}</strong>{category.descricao && <small>{category.descricao}</small>}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
   const editing = Boolean(occurrenceId);
   const [categoryId, setCategoryId] = useState('');
@@ -230,33 +324,87 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
   const [newFiles, setNewFiles] = useState([]);
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
+  const [processingMedia, setProcessingMedia] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState('');
   const [error, setError] = useState('');
+  const [previewMedia, setPreviewMedia] = useState(null);
 
-  useEffect(() => {
+  async function loadOccurrence() {
     if (!editing) return;
-    getOccurrence(occurrenceId, session.user.id).then(async ({ data, error: loadError }) => {
-      if (loadError) {
-        setError('Não foi possível carregar a ocorrência.');
-        setLoading(false);
-        return;
-      }
-      setCategoryId(data.categoria_id ? String(data.categoria_id) : '');
-      setDescription(data.descricao || '');
-      setExistingMedia(await createMediaUrls(data.ocorrencia_midias || []));
+    setLoading(true);
+    const { data, error: loadError } = await getOccurrence(occurrenceId, session.user.id);
+    if (loadError) {
+      setError('Não foi possível carregar a ocorrência.');
       setLoading(false);
-    });
-  }, [occurrenceId]);
+      return;
+    }
+    setCategoryId(data.categoria_id ? String(data.categoria_id) : '');
+    setDescription(data.descricao || '');
+    setExistingMedia(await createMediaUrls(data.ocorrencia_midias || []));
+    setLoading(false);
+  }
 
-  const selectedFiles = useMemo(() => newFiles, [newFiles]);
+  useEffect(() => { loadOccurrence(); }, [occurrenceId]);
 
-  function addFiles(event) {
+  async function addFiles(event) {
     const files = Array.from(event.target.files || []);
-    setNewFiles((current) => [...current, ...files]);
     event.target.value = '';
+    if (!files.length) return;
+
+    setError('');
+    setProcessingMedia(true);
+
+    const processed = [];
+    try {
+      for (const file of files) {
+        if (file.size > 100 * 1024 * 1024) {
+          throw new Error(`O arquivo "${file.name}" ultrapassa 100 MB antes da compressão.`);
+        }
+
+        setProcessingMessage(`Comprimindo ${file.name}...`);
+        const compressed = await compressMedia(file);
+        processed.push(compressed);
+      }
+
+      setNewFiles((current) => [...current, ...processed]);
+      setProcessingMessage('');
+    } catch (processingError) {
+      setError(processingError.message || 'Não foi possível processar a mídia.');
+      setProcessingMessage('');
+    } finally {
+      setProcessingMedia(false);
+    }
   }
 
   function removeNewFile(index) {
     setNewFiles((current) => current.filter((_, i) => i !== index));
+  }
+
+  async function handleDeleteMedia(item) {
+    if (!window.confirm(`Apagar a mídia "${item.nome_arquivo}"?`)) return;
+    const { error: deleteError } = await deleteMedia(item, session.user.id);
+    if (deleteError) {
+      setError(deleteError.message || 'Não foi possível apagar a mídia.');
+      return;
+    }
+    setExistingMedia((current) => current.filter((media) => media.id !== item.id));
+    setPreviewMedia(null);
+  }
+
+  async function handleDeleteOccurrence() {
+    if (!window.confirm(`Apagar definitivamente a ocorrência #${occurrenceId} e todas as mídias anexadas?`)) return;
+
+    setSaving(true);
+    setError('');
+    const { error: deleteError } = await deleteOccurrence(occurrenceId, session.user.id);
+    if (deleteError) {
+      setError(deleteError.message || 'Não foi possível apagar a ocorrência.');
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+    onBack();
   }
 
   async function handleSave(event) {
@@ -280,12 +428,13 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
     }
 
     const id = result.data.id;
-    for (const file of selectedFiles) {
+    for (const file of newFiles) {
       if (file.size > 50 * 1024 * 1024) {
-        setError(`O arquivo "${file.name}" ultrapassa o limite de 50 MB.`);
+        setError(`O arquivo "${file.name}" continua acima de 50 MB após a compressão.`);
         setSaving(false);
         return;
       }
+
       const mediaResult = await uploadMedia({ userId: session.user.id, occurrenceId: id, file });
       if (mediaResult.error) {
         setError(`A ocorrência foi salva, mas não foi possível enviar "${file.name}".`);
@@ -327,31 +476,41 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
             <span className="upload-icon">📷</span>
             <strong>Tirar foto</strong>
             <small>Usar a câmera do dispositivo</small>
-            <input type="file" accept="image/*" capture="environment" multiple onChange={addFiles} />
+            <input type="file" accept="image/*" capture="environment" multiple onChange={addFiles} disabled={processingMedia} />
           </label>
           <label className="upload-card">
             <span className="upload-icon">🎥</span>
             <strong>Gravar vídeo</strong>
             <small>Usar a câmera do dispositivo</small>
-            <input type="file" accept="video/*" capture="environment" onChange={addFiles} />
+            <input type="file" accept="video/*" capture="environment" onChange={addFiles} disabled={processingMedia} />
           </label>
           <label className="upload-card">
             <span className="upload-icon">📁</span>
             <strong>Escolher arquivos</strong>
             <small>Fotos ou vídeos existentes</small>
-            <input type="file" accept="image/*,video/*" multiple onChange={addFiles} />
+            <input type="file" accept="image/*,video/*" multiple onChange={addFiles} disabled={processingMedia} />
           </label>
         </div>
 
+        {processingMedia && <div className="processing"><strong>⏳ {processingMessage}</strong><span>A mídia será reduzida antes de ser enviada.</span></div>}
+
         {existingMedia.length > 0 && (
           <div>
-            <h3>Mídias já anexadas</h3>
+            <div className="section-heading"><h3>Mídias já anexadas</h3><span>{existingMedia.length} arquivo(s)</span></div>
             <div className="media-grid">
               {existingMedia.map((item) => (
-                <a className="media-item" key={item.id} href={item.url} target="_blank" rel="noreferrer">
-                  {item.tipo === 'foto' ? <img src={item.url} alt={item.nome_arquivo} /> : <video src={item.url} controls />}
-                  <span>{item.nome_arquivo}</span>
-                </a>
+                <div className="media-item" key={item.id}>
+                  <button type="button" className="media-preview-button" onClick={() => setPreviewMedia(item)}>
+                    {item.tipo === 'foto' ? <img src={item.url} alt={item.nome_arquivo} /> : <video src={item.url} muted />}
+                  </button>
+                  <div className="media-meta">
+                    <span title={item.nome_arquivo}>{item.nome_arquivo}</span>
+                    <div className="media-item-actions">
+                      <button type="button" className="link-button small-link" onClick={() => setPreviewMedia(item)}>Abrir</button>
+                      <button type="button" className="danger-link" onClick={() => handleDeleteMedia(item)}>Apagar</button>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
@@ -359,11 +518,11 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
 
         {newFiles.length > 0 && (
           <div>
-            <h3>Novos arquivos</h3>
+            <div className="section-heading"><h3>Arquivos prontos para envio</h3><span>{newFiles.length} arquivo(s)</span></div>
             <div className="file-list">
               {newFiles.map((file, index) => (
                 <div className="file-row" key={`${file.name}-${index}`}>
-                  <span>{file.type.startsWith('video/') ? '🎥' : '📷'} {file.name}</span>
+                  <span>{file.type.startsWith('video/') ? '🎥' : '📷'} {file.name} <small>({formatFileSize(file.size)})</small></span>
                   <button type="button" className="secondary small" onClick={() => removeNewFile(index)}>Remover</button>
                 </div>
               ))}
@@ -372,9 +531,41 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
         )}
 
         {error && <div className="error">{error}</div>}
-        <button type="submit" disabled={saving}>{saving ? 'Salvando...' : editing ? 'Salvar alterações' : 'Registrar ocorrência'}</button>
+
+        <div className="form-footer">
+          <button type="submit" disabled={saving || processingMedia}>{saving ? 'Salvando...' : editing ? 'Salvar alterações' : 'Registrar ocorrência'}</button>
+          {editing && <button type="button" className="danger-button" onClick={handleDeleteOccurrence} disabled={saving || processingMedia}>Apagar ocorrência</button>}
+        </div>
       </form>
+
+      {previewMedia && (
+        <MediaViewer media={previewMedia} onClose={() => setPreviewMedia(null)} onDelete={() => handleDeleteMedia(previewMedia)} />
+      )}
     </section>
+  );
+}
+
+function MediaViewer({ media, onClose, onDelete }) {
+  return (
+    <div className="media-modal" role="dialog" aria-modal="true" aria-label="Visualizador de mídia" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <div className="media-modal-card">
+        <div className="media-modal-header">
+          <strong>{media.nome_arquivo}</strong>
+          <button type="button" className="secondary small" onClick={onClose}>Fechar</button>
+        </div>
+        <div className="media-modal-content">
+          {media.tipo === 'foto'
+            ? <img src={media.url} alt={media.nome_arquivo} />
+            : <video src={media.url} controls autoPlay />}
+        </div>
+        <div className="media-modal-footer">
+          <button type="button" className="danger-button" onClick={onDelete}>Apagar mídia</button>
+          <a className="secondary-button-link" href={media.url} download={media.nome_arquivo}>Baixar</a>
+        </div>
+      </div>
+    </div>
   );
 }
 
