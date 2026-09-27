@@ -134,6 +134,7 @@ function Dashboard({ session }) {
   const [occurrences, setOccurrences] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   async function loadData() {
@@ -175,6 +176,18 @@ function Dashboard({ session }) {
     setScreen('form');
   }
 
+  const filteredOccurrences = occurrences.filter((item) => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    return [
+      item.numero,
+      item.categorias?.nome,
+      item.descricao,
+      item.profiles?.username,
+      item.profiles?.nome,
+    ].some((value) => String(value ?? '').toLowerCase().includes(term));
+  });
+
   return (
     <main className="dashboard">
       <header className="topbar">
@@ -204,23 +217,33 @@ function Dashboard({ session }) {
             </div>
 
             <section className="panel">
-              <div className="panel-title"><h2>Últimas ocorrências</h2><button className="secondary small" onClick={loadData}>Atualizar</button></div>
+              <div className="panel-title occurrence-panel-header">
+                <h2>Últimas ocorrências</h2>
+                <div className="occurrence-tools">
+                  <div className="search-box">
+                    <span>🔎</span>
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar registros..." aria-label="Pesquisar registros" />
+                  </div>
+                  <button className="secondary small refresh-button" onClick={loadData} title="Atualizar registros" aria-label="Atualizar registros">↻</button>
+                </div>
+              </div>
               {loading ? <p className="muted">Carregando...</p> : occurrences.length === 0 ? (
                 <div className="empty"><div className="empty-icon">📋</div><strong>Nenhuma ocorrência registrada</strong><span>Comece pelo botão “Nova ocorrência”.</span></div>
               ) : (
                 <div className="occurrence-list">
-                  {occurrences.map((item) => (
+                  {filteredOccurrences.map((item) => (
                     <button key={item.id} className="occurrence-row" onClick={() => openEdit(item.id)}>
                       <span className="occurrence-number">#{item.numero}</span>
                       <span className="occurrence-main">
                         <strong>{item.categorias?.nome || 'Sem categoria'}</strong>
                         <small>{item.descricao || 'Sem descrição'}</small>
                       </span>
-                      <span className="occurrence-date">{new Date(item.created_at).toLocaleDateString('pt-BR')}</span>
+                      <span className="occurrence-date">{new Date(item.ocorrido_at || item.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
                     </button>
                   ))}
                 </div>
               )}
+              {!loading && occurrences.length > 0 && filteredOccurrences.length === 0 && <div className="empty"><strong>Nenhum registro encontrado.</strong><span>Tente outro termo de pesquisa.</span></div>}
             </section>
           </>
         )}
@@ -357,6 +380,7 @@ function CategoryManager({ categories, onBack, onCreated }) {
 function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategoriesChanged }) {
   const editing = Boolean(occurrenceId);
   const [categoryId, setCategoryId] = useState('');
+  const [occurredAt, setOccurredAt] = useState('');
   const [description, setDescription] = useState('');
   const [existingMedia, setExistingMedia] = useState([]);
   const [newFiles, setNewFiles] = useState([]);
@@ -366,6 +390,8 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
   const [processingMessage, setProcessingMessage] = useState('');
   const [error, setError] = useState('');
   const [previewMedia, setPreviewMedia] = useState(null);
+  const [registeredAt, setRegisteredAt] = useState(null);
+  const [registeredUser, setRegisteredUser] = useState(null);
 
   async function loadOccurrence() {
     if (!editing) return;
@@ -377,6 +403,9 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
       return;
     }
     setCategoryId(data.categoria_id ? String(data.categoria_id) : '');
+    setOccurredAt(data.ocorrido_at ? new Date(data.ocorrido_at).toISOString().slice(0,16) : '');
+    setRegisteredAt(data.created_at);
+    setRegisteredUser(data.profiles);
     setDescription(data.descricao || '');
     setExistingMedia(await createMediaUrls(data.ocorrencia_midias || []));
     setLoading(false);
@@ -450,7 +479,13 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
     setError('');
     setSaving(true);
 
-    const payload = { categoriaId: categoryId ? Number(categoryId) : null, descricao: description };
+    if (!occurredAt) {
+      setError('Informe a data e a hora em que a ocorrência aconteceu.');
+      setSaving(false);
+      return;
+    }
+
+    const payload = { categoriaId: categoryId ? Number(categoryId) : null, occurredAt, descricao: description };
 
     let result;
     if (editing) {
@@ -498,6 +533,16 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
       </div>
 
       <form onSubmit={handleSave} className="occurrence-form">
+        <div className="occurrence-info-grid">
+          <label>Data e hora do ocorrido
+            <input type="datetime-local" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} required />
+          </label>
+          <div className="registration-info">
+            <span>Registrado por</span>
+            <strong>{registeredUser?.nome || registeredUser?.username || session.user.user_metadata?.username || session.user.email}</strong>
+            {editing && registeredAt && <small>Registro no sistema: {new Date(registeredAt).toLocaleString('pt-BR')}</small>}
+          </div>
+        </div>
         <div className="category-field">
           <label>Categoria
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
