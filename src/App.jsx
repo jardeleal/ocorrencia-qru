@@ -199,7 +199,26 @@ function Dashboard({ session }) {
     return { data, error };
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+
+    const channel = supabase
+      .channel('qru-ocorrencias-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ocorrencias' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ocorrencia_midias' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'categorias' }, () => {
+        loadData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   async function handleLogout() {
     await signOut();
