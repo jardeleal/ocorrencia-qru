@@ -37,7 +37,7 @@ export async function compressImage(file) {
   if (!file.type.startsWith('image/')) return file;
 
   const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const maxDimension = 1600;
+  const maxDimension = 1280;
   const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
@@ -54,7 +54,7 @@ export async function compressImage(file) {
     canvas.toBlob((result) => {
       if (result) resolve(result);
       else reject(new Error('Não foi possível comprimir a imagem.'));
-    }, 'image/jpeg', 0.78);
+    }, 'image/jpeg', 0.62);
   });
 
   return new File(
@@ -79,30 +79,35 @@ export async function compressVideo(file, onProgress) {
     });
 
     await ffmpeg.writeFile(inputName, await fetchFile(file));
-    await ffmpeg.exec([
-      '-i', inputName,
-      '-vf', "scale=w='min(1280,iw)':h=-2",
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '28',
-      '-c:a', 'aac',
-      '-b:a', '96k',
-      '-movflags', '+faststart',
-      outputName,
-    ]);
+    let blob = null;
+    const attempts = [30, 33, 36];
 
-    const data = await ffmpeg.readFile(outputName);
-    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    for (const crf of attempts) {
+      try { await ffmpeg.deleteFile(outputName); } catch {}
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-vf', "scale=w='min(1280,iw)':h=-2,fps=30",
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', String(crf),
+        '-c:a', 'aac',
+        '-b:a', '64k',
+        '-movflags', '+faststart',
+        outputName,
+      ]);
 
-    if (!blob.size || blob.size >= file.size) {
-      return file;
+      const data = await ffmpeg.readFile(outputName);
+      blob = new Blob([data.buffer], { type: 'video/mp4' });
+      if (blob.size <= 45 * 1024 * 1024) break;
     }
 
-    return new File(
-      [blob],
-      replaceExtension(file.name, 'mp4'),
-      { type: 'video/mp4', lastModified: Date.now() },
-    );
+    if (!blob?.size) throw new Error('Não foi possível comprimir o vídeo.');
+    if (blob.size >= file.size && file.size <= 45 * 1024 * 1024) return file;
+    if (blob.size > 45 * 1024 * 1024) {
+      throw new Error('Este vídeo continua muito grande após a compressão. Tente gravar um vídeo mais curto.');
+    }
+
+    return new File([blob], replaceExtension(file.name, 'mp4'), { type: 'video/mp4', lastModified: Date.now() });
   } finally {
     try { await ffmpeg.deleteFile(inputName); } catch {}
     try { await ffmpeg.deleteFile(outputName); } catch {}
