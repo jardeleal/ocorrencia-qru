@@ -11,7 +11,9 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.2",
