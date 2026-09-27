@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createProfile, getSession, signIn, signOut } from './lib/auth';
+import { createProfile, getSession, signIn, signOut, signUp, SIGNUP_CODE } from './lib/auth';
 import { supabase } from './lib/supabase';
 import {
   createMediaUrls,
@@ -12,21 +12,61 @@ import {
 } from './lib/occurrences';
 
 function Login({ onLogin }) {
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [signupCode, setSignupCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  function switchMode(nextMode) {
+    setMode(nextMode);
+    setMessage('');
+    setError('');
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setError('');
+    setMessage('');
     setLoading(true);
+
+    if (mode === 'signup') {
+      if (signupCode.trim() !== SIGNUP_CODE) {
+        setError('Código de cadastro inválido.');
+        setLoading(false);
+        return;
+      }
+
+      const { data, error: signupError } = await signUp(email.trim(), password);
+      if (signupError) {
+        setError(signupError.message || 'Não foi possível criar a conta.');
+        setLoading(false);
+        return;
+      }
+
+      if (data.session) {
+        await createProfile(data.user);
+        onLogin(data.session);
+      } else {
+        setMessage('Conta criada! Verifique seu e-mail para confirmar o cadastro e depois entre no sistema.');
+        setMode('login');
+        setPassword('');
+        setSignupCode('');
+      }
+
+      setLoading(false);
+      return;
+    }
+
     const { data, error: authError } = await signIn(email.trim(), password);
     if (authError) {
       setError('E-mail ou senha inválidos.');
       setLoading(false);
       return;
     }
+
     await createProfile(data.user);
     onLogin(data.session);
     setLoading(false);
@@ -38,16 +78,40 @@ function Login({ onLogin }) {
         <div className="brand-mark">QRU</div>
         <h1>Ocorrência QRU</h1>
         <p className="subtitle">Registre ocorrências com rapidez, fotos e vídeos.</p>
+
+        <div className="auth-tabs">
+          <button type="button" className={mode === 'login' ? 'auth-tab active' : 'auth-tab'} onClick={() => switchMode('login')}>Entrar</button>
+          <button type="button" className={mode === 'signup' ? 'auth-tab active' : 'auth-tab'} onClick={() => switchMode('signup')}>Criar conta</button>
+        </div>
+
         <form onSubmit={handleSubmit} className="form">
-          <label>E-mail
+          <label>Usuário (e-mail)
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" autoComplete="email" required />
           </label>
+
           <label>Senha
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Digite sua senha" autoComplete="current-password" required />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Digite sua senha" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength="6" required />
           </label>
+
+          {mode === 'signup' && (
+            <label>Código de cadastro
+              <input type="password" value={signupCode} onChange={(e) => setSignupCode(e.target.value)} placeholder="Digite o código de cadastro" autoComplete="off" required />
+            </label>
+          )}
+
           {error && <div className="error">{error}</div>}
-          <button type="submit" disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
+          {message && <div className="success">{message}</div>}
+
+          <button type="submit" disabled={loading}>
+            {loading ? (mode === 'signup' ? 'Criando conta...' : 'Entrando...') : mode === 'signup' ? 'Criar conta' : 'Entrar'}
+          </button>
         </form>
+
+        <p className="auth-help">
+          {mode === 'login'
+            ? <>Ainda não tem conta? <button type="button" className="link-button inline" onClick={() => switchMode('signup')}>Criar conta</button></>
+            : <>Já tem uma conta? <button type="button" className="link-button inline" onClick={() => switchMode('login')}>Entrar</button></>}
+        </p>
       </section>
     </main>
   );
