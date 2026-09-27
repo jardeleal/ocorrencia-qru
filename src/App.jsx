@@ -35,7 +35,7 @@ function buildWhatsAppMessage({ occurrence, categoryName, occurredAt, userName, 
     `📎 *Mídias anexadas:* ${mediaCount}`,
     '',
     'Registro salvo no sistema Ocorrência QRU.'
-  ].join('\\n');
+  ].join('\n');
 }
 
 function Login({ onLogin }) {
