@@ -157,7 +157,6 @@ function Dashboard({ session }) {
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [sharePending, setSharePending] = useState(null);
 
   async function loadData() {
     setLoading(true);
@@ -285,18 +284,10 @@ function Dashboard({ session }) {
             occurrenceId={selectedId}
             onBack={() => { setScreen('home'); loadData(); }}
             onCategoriesChanged={loadCategories}
-            onRegistered={(payload) => setSharePending(payload)}
           />
         )}
       </section>
 
-      {sharePending && (
-        <WhatsAppShare
-          message={sharePending.message}
-          files={sharePending.files}
-          onClose={() => setSharePending(null)}
-        />
-      )}
     </main>
   );
 }
@@ -523,6 +514,66 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
     });
   }
 
+  function openWhatsAppText(occurrence) {
+    const message = prepareWhatsAppMessage(occurrence);
+    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    const whatsappWindow = window.open(url, '_blank', 'noopener,noreferrer');
+
+    if (!whatsappWindow) {
+      setError('O navegador bloqueou a abertura do WhatsApp. Permita pop-ups para este site.');
+    }
+  }
+
+  async function shareOccurrenceWithMedia() {
+    setError('');
+
+    const message = prepareWhatsAppMessage({
+      numero: occurrenceNumber,
+      categoria_id: categoryId || null,
+      ocorrido_at: occurredAt,
+    });
+
+    if (!existingMedia.length) {
+      openWhatsAppText({
+        numero: occurrenceNumber,
+        categoria_id: categoryId || null,
+        ocorrido_at: occurredAt,
+      });
+      return;
+    }
+
+    if (!navigator.share || !navigator.canShare) {
+      setError('Seu navegador não suporta compartilhamento de arquivos. Abra o WhatsApp pelo botão de texto e anexe as mídias manualmente.');
+      return;
+    }
+
+    try {
+      const files = [];
+
+      for (const media of existingMedia) {
+        const response = await fetch(media.url);
+        if (!response.ok) throw new Error(`Não foi possível preparar "${media.nome_arquivo}".`);
+        const blob = await response.blob();
+        files.push(new File([blob], media.nome_arquivo, {
+          type: blob.type || (media.tipo === 'video' ? 'video/mp4' : 'image/jpeg'),
+        }));
+      }
+
+      if (!navigator.canShare({ files })) {
+        throw new Error('Este dispositivo não permite compartilhar essas mídias pelo navegador.');
+      }
+
+      await navigator.share({
+        title: `Ocorrência #${occurrenceNumber}`,
+        text: message,
+        files,
+      });
+    } catch (shareError) {
+      if (shareError?.name === 'AbortError') return;
+      setError(shareError.message || 'Não foi possível compartilhar as mídias.');
+    }
+  }
+
   async function handleSave(event) {
     event.preventDefault();
     setError('');
@@ -566,10 +617,7 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
     }
 
     if (!editing) {
-      onRegistered({
-        message: prepareWhatsAppMessage(result.data),
-        files: [...newFiles],
-      });
+      openWhatsAppText(result.data);
     }
 
     setSaving(false);
@@ -586,6 +634,11 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
           <h1>{editing ? `Ocorrência #${occurrenceNumber ?? occurrenceId}` : 'Nova ocorrência'}</h1>
           <p>{editing ? 'Altere a descrição ou acrescente novas mídias.' : 'Preencha os dados e registre fotos ou vídeos.'}</p>
         </div>
+        {editing && (
+          <button type="button" className="secondary" onClick={shareOccurrenceWithMedia}>
+            📲 Compartilhar no WhatsApp
+          </button>
+        )}
       </div>
 
       <form onSubmit={handleSave} className="occurrence-form">
@@ -696,83 +749,6 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
         <MediaViewer media={previewMedia} onClose={() => setPreviewMedia(null)} onDelete={() => handleDeleteMedia(previewMedia)} />
       )}
     </section>
-  );
-}
-
-function WhatsAppShare({ message, files, onClose }) {
-  const [sharing, setSharing] = useState(false);
-  const [shareError, setShareError] = useState('');
-
-  function openTextOnly() {
-    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
-    const whatsappWindow = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!whatsappWindow) {
-      setShareError('O navegador bloqueou a abertura do WhatsApp. Permita pop-ups para este site.');
-    }
-  }
-
-  async function shareWithMedia() {
-    setShareError('');
-
-    if (!files.length) {
-      openTextOnly();
-      return;
-    }
-
-    if (!navigator.share || !navigator.canShare) {
-      setShareError('Este navegador não suporta compartilhamento de arquivos. Use “Abrir WhatsApp só com texto”.');
-      return;
-    }
-
-    if (!navigator.canShare({ files })) {
-      setShareError('Este dispositivo/navegador não permite compartilhar esses arquivos pelo WhatsApp. Você pode abrir o WhatsApp com o texto e anexar as mídias manualmente.');
-      return;
-    }
-
-    setSharing(true);
-    try {
-      await navigator.share({
-        title: 'Ocorrência QRU',
-        text: message,
-        files,
-      });
-      onClose();
-    } catch (shareErrorValue) {
-      if (shareErrorValue?.name !== 'AbortError') {
-        setShareError('Não foi possível compartilhar as mídias. Tente novamente ou use a opção de texto.');
-      }
-    } finally {
-      setSharing(false);
-    }
-  }
-
-  return (
-    <div className="media-modal" role="dialog" aria-modal="true" aria-label="Compartilhar ocorrência no WhatsApp" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
-      <div className="media-modal-card">
-        <div className="media-modal-header">
-          <strong>Compartilhar no WhatsApp</strong>
-          <button type="button" className="secondary small" onClick={onClose}>Fechar</button>
-        </div>
-        <div className="media-modal-content share-content">
-          <div className="share-icon">📲</div>
-          <h3>Ocorrência registrada!</h3>
-          <p>Escolha “Compartilhar com mídias” para enviar a mensagem junto com as fotos e vídeos pelo compartilhamento do celular.</p>
-          <div className="share-file-summary">
-            <strong>{files.length} mídia(s) pronta(s)</strong>
-            {files.map((file, index) => <span key={`${file.name}-${index}`}>{file.type.startsWith('video/') ? '🎥' : '📷'} {file.name}</span>)}
-          </div>
-          {shareError && <div className="error">{shareError}</div>}
-        </div>
-        <div className="media-modal-footer share-actions">
-          <button type="button" onClick={shareWithMedia} disabled={sharing}>
-            {sharing ? 'Abrindo compartilhamento...' : '📲 Compartilhar com mídias'}
-          </button>
-          <button type="button" className="secondary" onClick={openTextOnly}>💬 Abrir WhatsApp só com texto</button>
-        </div>
-      </div>
-    </div>
   );
 }
 
