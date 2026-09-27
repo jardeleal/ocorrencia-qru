@@ -3,6 +3,8 @@ import { createProfile, getSession, signIn, signOut, signUp, SIGNUP_CODE } from 
 import { supabase } from './lib/supabase';
 import {
   createCategory,
+  updateCategory,
+  deleteCategory,
   createMediaUrls,
   createOccurrence,
   deleteMedia,
@@ -237,6 +239,7 @@ function Dashboard({ session }) {
             categories={categories}
             occurrenceId={selectedId}
             onBack={() => { setScreen('home'); loadData(); }}
+            onCategoriesChanged={loadCategories}
           />
         )}
       </section>
@@ -247,32 +250,60 @@ function Dashboard({ session }) {
 function CategoryManager({ categories, onBack, onCreated }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  async function handleCreate(event) {
+  function startEdit(category) {
+    setEditingId(category.id);
+    setName(category.nome);
+    setDescription(category.descricao || '');
+    setMessage('');
+    setError('');
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setName('');
+    setDescription('');
+    setError('');
+  }
+
+  async function handleSubmit(event) {
     event.preventDefault();
     setSaving(true);
     setMessage('');
     setError('');
 
-    const { error: createError } = await createCategory({ nome: name, descricao: description });
-    if (createError) {
-      if (createError.code === '23505') {
-        setError('Essa categoria já existe.');
-      } else {
-        setError(createError.message || 'Não foi possível criar a categoria.');
-      }
+    const result = editingId
+      ? await updateCategory(editingId, { nome: name, descricao: description })
+      : await createCategory({ nome: name, descricao: description });
+
+    if (result.error) {
+      if (result.error.code === '23505') setError('Essa categoria já existe.');
+      else setError(result.error.message || 'Não foi possível salvar a categoria.');
       setSaving(false);
       return;
     }
 
-    setName('');
-    setDescription('');
-    setMessage('Categoria criada com sucesso.');
+    cancelEdit();
+    setMessage(editingId ? 'Categoria atualizada com sucesso.' : 'Categoria criada com sucesso.');
     await onCreated();
     setSaving(false);
+  }
+
+  async function handleDelete(category) {
+    if (!window.confirm(`Excluir a categoria "${category.nome}"?`)) return;
+    setError('');
+    const { error: deleteError } = await deleteCategory(category.id);
+    if (deleteError) {
+      setError(deleteError.message || 'Não foi possível excluir a categoria.');
+      return;
+    }
+    setMessage('Categoria excluída.');
+    if (editingId === category.id) cancelEdit();
+    await onCreated();
   }
 
   return (
@@ -286,8 +317,8 @@ function CategoryManager({ categories, onBack, onCreated }) {
       </div>
 
       <div className="category-layout">
-        <form className="category-create" onSubmit={handleCreate}>
-          <h2>Nova categoria</h2>
+        <form className="category-create" onSubmit={handleSubmit}>
+          <h2>{editingId ? 'Editar categoria' : 'Nova categoria'}</h2>
           <label>Nome
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength="60" placeholder="Ex.: Produto vencido" required />
           </label>
@@ -296,7 +327,10 @@ function CategoryManager({ categories, onBack, onCreated }) {
           </label>
           {error && <div className="error">{error}</div>}
           {message && <div className="success">{message}</div>}
-          <button type="submit" disabled={saving}>{saving ? 'Salvando...' : '+ Adicionar categoria'}</button>
+          <div className="form-actions-inline">
+            <button type="submit" disabled={saving}>{saving ? 'Salvando...' : editingId ? 'Salvar alterações' : '+ Adicionar categoria'}</button>
+            {editingId && <button type="button" className="secondary" onClick={cancelEdit} disabled={saving}>Cancelar</button>}
+          </div>
         </form>
 
         <div>
@@ -307,6 +341,10 @@ function CategoryManager({ categories, onBack, onCreated }) {
             ) : categories.map((category) => (
               <div className="category-row" key={category.id}>
                 <div><strong>{category.nome}</strong>{category.descricao && <small>{category.descricao}</small>}</div>
+                <div className="category-row-actions">
+                  <button type="button" className="link-button small-link" onClick={() => startEdit(category)}>Editar</button>
+                  <button type="button" className="danger-link" onClick={() => handleDelete(category)}>Excluir</button>
+                </div>
               </div>
             ))}
           </div>
@@ -316,7 +354,7 @@ function CategoryManager({ categories, onBack, onCreated }) {
   );
 }
 
-function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
+function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategoriesChanged }) {
   const editing = Boolean(occurrenceId);
   const [categoryId, setCategoryId] = useState('');
   const [description, setDescription] = useState('');
@@ -357,8 +395,8 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
     const processed = [];
     try {
       for (const file of files) {
-        if (file.size > 100 * 1024 * 1024) {
-          throw new Error(`O arquivo "${file.name}" ultrapassa 100 MB antes da compressão.`);
+        if (file.size > 500 * 1024 * 1024) {
+          throw new Error(`O arquivo "${file.name}" ultrapassa 500 MB antes da compressão.`);
         }
 
         setProcessingMessage(`Comprimindo ${file.name}...`);
@@ -429,8 +467,8 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
 
     const id = result.data.id;
     for (const file of newFiles) {
-      if (file.size > 50 * 1024 * 1024) {
-        setError(`O arquivo "${file.name}" continua acima de 50 MB após a compressão.`);
+      if (file.size > 45 * 1024 * 1024) {
+        setError(`O arquivo "${file.name}" continua acima do limite seguro de 45 MB após a compressão.`);
         setSaving(false);
         return;
       }
@@ -460,12 +498,26 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack }) {
       </div>
 
       <form onSubmit={handleSave} className="occurrence-form">
-        <label>Categoria
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-            <option value="">Selecione uma categoria</option>
-            {categories.map((cat) => <option key={cat.id} value={cat.id}>{cat.nome}</option>)}
-          </select>
-        </label>
+        <div className="category-field">
+          <label>Categoria
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
+              <option value="">Selecione uma categoria</option>
+              {categories.map((cat) => <option key={cat.id} value={cat.id}>{cat.nome}</option>)}
+            </select>
+          </label>
+          <button type="button" className="secondary small category-add-button" onClick={async () => {
+            const name = window.prompt('Nome da nova categoria:');
+            if (!name?.trim()) return;
+            const result = await createCategory({ nome: name, descricao: '' });
+            if (result.error) {
+              setError(result.error.code === '23505' ? 'Essa categoria já existe.' : result.error.message);
+              return;
+            }
+            await onCategoriesChanged();
+            setCategoryId(String(result.data.id));
+            setError('');
+          }}>+ Nova categoria</button>
+        </div>
 
         <label>Descrição / observações
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descreva o que aconteceu..." rows="6" />
