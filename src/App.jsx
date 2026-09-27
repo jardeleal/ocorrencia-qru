@@ -391,6 +391,8 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
   const [error, setError] = useState('');
   const [previewMedia, setPreviewMedia] = useState(null);
   const [registeredAt, setRegisteredAt] = useState(null);
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const [occurrenceNumber, setOccurrenceNumber] = useState(null);
   const [registeredUser, setRegisteredUser] = useState(null);
 
   async function loadOccurrence() {
@@ -405,6 +407,8 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
     setCategoryId(data.categoria_id ? String(data.categoria_id) : '');
     setOccurredAt(data.ocorrido_at ? new Date(data.ocorrido_at).toISOString().slice(0,16) : '');
     setRegisteredAt(data.created_at);
+    setUpdatedAt(data.updated_at);
+    setOccurrenceNumber(data.numero);
     setRegisteredUser(data.profiles);
     setDescription(data.descricao || '');
     setExistingMedia(await createMediaUrls(data.ocorrencia_midias || []));
@@ -527,7 +531,7 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
       <div className="page-heading compact">
         <div>
           <button type="button" className="link-button" onClick={onBack}>← Voltar</button>
-          <h1>{editing ? `Editar ocorrência #${occurrenceId}` : 'Nova ocorrência'}</h1>
+          <h1>{editing ? `Ocorrência #${occurrenceNumber ?? occurrenceId}` : 'Nova ocorrência'}</h1>
           <p>{editing ? 'Altere a descrição ou acrescente novas mídias.' : 'Preencha os dados e registre fotos ou vídeos.'}</p>
         </div>
       </div>
@@ -540,7 +544,8 @@ function OccurrenceForm({ session, categories, occurrenceId, onBack, onCategorie
           <div className="registration-info">
             <span>Registrado por</span>
             <strong>{registeredUser?.nome || registeredUser?.username || session.user.user_metadata?.username || session.user.email}</strong>
-            {editing && registeredAt && <small>Registro no sistema: {new Date(registeredAt).toLocaleString('pt-BR')}</small>}
+            {editing && registeredAt && <small>Registrado em: {new Date(registeredAt).toLocaleString('pt-BR')}</small>}
+            {editing && updatedAt && <small>Última atualização: {new Date(updatedAt).toLocaleString('pt-BR')}</small>}
           </div>
         </div>
         <div className="category-field">
