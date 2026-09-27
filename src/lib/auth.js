@@ -1,8 +1,21 @@
 import { supabase } from './supabase';
 
+export const SIGNUP_CODE = 'monitor@07';
+
 export async function signIn(email, password) {
   if (!supabase) throw new Error('Supabase não configurado.');
   return supabase.auth.signInWithPassword({ email, password });
+}
+
+export async function signUp(email, password) {
+  if (!supabase) throw new Error('Supabase não configurado.');
+  return supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: window.location.origin + window.location.pathname,
+    },
+  });
 }
 
 export async function signOut() {
